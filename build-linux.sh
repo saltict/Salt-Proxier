@@ -7,7 +7,7 @@ set -e
 echo "Building Linux binary using Docker..."
 
 # Build with Docker
-docker build --target builder -t salt-proxier-builder .
+docker build -f docker/Dockerfile --target builder -t salt-proxier-builder .
 
 # Create a temporary container to extract the binary
 CONTAINER_ID=$(docker create salt-proxier-builder)

@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  salt-proxier:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: saltict/salt-proxier:latest
+    container_name: salt-proxier
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
+    command: >
+      --port 3000
+      ${PROXY:+--proxy ${PROXY}}
+      ${CORS:+--cors ${CORS}}
+      ${BEARER_TOKEN:+--bearer-token ${BEARER_TOKEN}}
+    networks:
+      - salt-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  salt-network:
+    driver: bridge
