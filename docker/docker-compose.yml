@@ -17,6 +17,8 @@ services:
       ${PROXY:+--proxy ${PROXY}}
       ${CORS:+--cors ${CORS}}
       ${BEARER_TOKEN:+--bearer-token ${BEARER_TOKEN}}
+      ${ALLOW_HEADERS:+--allow-headers ${ALLOW_HEADERS}}
+      ${STRIP_PREFIXES:+--strip-prefixes ${STRIP_PREFIXES}}
     networks:
       - salt-network
     healthcheck:

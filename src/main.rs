@@ -9,7 +9,7 @@ use axum::{
 use clap::Parser;
 use reqwest::Client;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -29,12 +29,22 @@ struct Args {
     /// Bearer token for authentication (optional)
     #[arg(long)]
     bearer_token: Option<String>,
+
+    /// Comma-separated list of headers to forward to target server
+    #[arg(long)]
+    allow_headers: Option<String>,
+
+    /// Comma-separated list of path prefixes to strip before forwarding
+    #[arg(long)]
+    strip_prefixes: Option<String>,
 }
 
 #[derive(Clone)]
 struct AppState {
     client: Client,
     bearer_token: Option<String>,
+    allowed_headers: Vec<String>,
+    strip_prefixes: Vec<String>,
 }
 
 struct ProxyConfig {
@@ -161,9 +171,40 @@ async fn main() {
         info!("No bearer token authentication (server is public)");
     }
 
+    // Parse allowed headers
+    let allowed_headers: Vec<String> = args.allow_headers
+        .as_ref()
+        .map(|h| h.split(',').map(|s| s.trim().to_lowercase()).collect())
+        .unwrap_or_default();
+
+    if !allowed_headers.is_empty() {
+        info!("Allowed headers to forward: {}", allowed_headers.join(", "));
+    }
+
+    // Parse strip prefixes
+    let strip_prefixes: Vec<String> = args.strip_prefixes
+        .as_ref()
+        .map(|p| p.split(',').map(|s| {
+            let trimmed = s.trim();
+            // Ensure prefix starts with / and doesn't end with /
+            let with_slash = if !trimmed.starts_with('/') {
+                format!("/{}", trimmed)
+            } else {
+                trimmed.to_string()
+            };
+            with_slash.trim_end_matches('/').to_string()
+        }).collect())
+        .unwrap_or_default();
+
+    if !strip_prefixes.is_empty() {
+        info!("Path prefixes to strip: {}", strip_prefixes.join(", "));
+    }
+
     let state = AppState {
         client,
         bearer_token: args.bearer_token,
+        allowed_headers,
+        strip_prefixes,
     };
 
     // Configure CORS
@@ -231,22 +272,36 @@ async fn handler(
         }
     }
     
-    // Extract Salt-Host header
+    // Extract Host header
     let target_host = headers
-        .get("Salt-Host")
+        .get("Host")
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| {
-            error!("Missing Salt-Host header");
-            AppError::MissingHeader("Salt-Host".to_string())
+            error!("Missing Host header");
+            AppError::MissingHeader("Host".to_string())
         })?;
 
-    info!("Target host from Salt-Host header: {}", target_host);
+    info!("Target host from Host header: {}", target_host);
+
+    // Strip prefix from path if configured
+    let mut path = uri.path().to_string();
+    for prefix in &state.strip_prefixes {
+        if path.starts_with(prefix) {
+            // Remove the prefix and ensure path starts with /
+            path = path[prefix.len()..].to_string();
+            if !path.starts_with('/') {
+                path = format!("/{}", path);
+            }
+            debug!("Stripped prefix '{}' from path, new path: {}", prefix, path);
+            break; // Only strip the first matching prefix
+        }
+    }
 
     // Construct target URL
     let target_url = if target_host.starts_with("http://") || target_host.starts_with("https://") {
-        format!("{}{}", target_host, uri.path())
+        format!("{}{}", target_host, path)
     } else {
-        format!("https://{}{}", target_host, uri.path())
+        format!("https://{}{}", target_host, path)
     };
 
     // Add query string if present
@@ -258,14 +313,15 @@ async fn handler(
 
     info!("Proxying {} request to: {}", method, target_url);
 
-    // Build new headers (extract Salt-* headers and forward them)
+    // Build new headers (forward only allowed headers)
     let mut new_headers = reqwest::header::HeaderMap::new();
     for (key, value) in headers.iter() {
         let key_str = key.as_str();
-        if key_str.starts_with("Salt-") && key_str != "Salt-Host" {
-            // Remove "Salt-" prefix and add to new headers
-            let new_key = &key_str[5..]; // Skip "Salt-"
-            if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(new_key.as_bytes()) {
+        let key_lower = key_str.to_lowercase();
+        
+        // Forward headers in the allowed list
+        if state.allowed_headers.contains(&key_lower) {
+            if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(key_str.as_bytes()) {
                 if let Ok(header_value) = reqwest::header::HeaderValue::from_bytes(value.as_bytes()) {
                     new_headers.insert(header_name, header_value);
                 }

@@ -1,14 +1,15 @@
 # Salt Proxier
 
-A Rust-based HTTP proxy server that forwards requests through a configured proxy with custom header transformations.
+A Rust-based HTTP proxy server that forwards requests through a configured proxy with flexible header forwarding.
 
 ## Features
 
 - 🚀 Fast and lightweight Rust implementation
 - 🔄 Forward requests through a configured proxy
-- 🎯 Dynamic target host configuration via headers
-- 🔧 Custom header transformation (Salt-* headers)
+- 🎯 Dynamic target host configuration via Host header
+- 🔧 Configurable header forwarding via allow-headers option
 - 📡 Support for all HTTP methods
+- 🔐 Optional bearer token authentication
 
 ## Installation
 
@@ -102,41 +103,81 @@ cargo run -- --port 8080 --cors "*"
 cargo run -- --port 8080 --cors "https://myapp.com"
 ```
 
+### With Custom Header Forwarding
+
+```bash
+# Forward specific headers to target server
+cargo run -- --port 8080 --allow-headers "authorization,content-type,x-api-key"
+
+# Combine with other options
+cargo run -- --port 8080 \
+  --proxy user:pass@proxy.com:8080 \
+  --bearer-token your-secret-token \
+  --allow-headers "authorization,content-type"
+```
+
+### With Path Prefix Stripping
+
+```bash
+# Strip specific prefixes from paths before forwarding
+cargo run -- --port 8080 --strip-prefixes "meta,poly,api"
+
+# Request to localhost:8080/meta/markets will be forwarded as /markets
+# Request to localhost:8080/poly/events will be forwarded as /events
+
+# Combine with other options
+cargo run -- --port 8080 \
+  --strip-prefixes "meta,poly" \
+  --allow-headers "authorization,content-type" \
+  --bearer-token your-secret-token
+```
+
 ## How It Works
 
 The server acts as an intermediary that:
 
-1. Receives requests with special `Salt-*` headers
-2. Extracts the target host from `Salt-Host` header
-3. Transforms `Salt-*` headers by removing the `Salt-` prefix
-4. Forwards the request through the configured proxy (if any)
-5. Returns the response to the client
+1. Receives requests with standard HTTP headers
+2. Extracts the target host from `Host` header
+3. Strips configured path prefixes (if `--strip-prefixes` is set)
+4. Forwards only the headers specified in `--allow-headers` option
+5. Proxies the request through the configured proxy (if any)
+6. Returns the response to the client
 
-### Header Transformation
+### Path Prefix Stripping
 
-- `Salt-Host: api.example.com` → Target host for the request
-- `Salt-Authorization: Bearer token123` → `Authorization: Bearer token123`
-- `Salt-Content-Type: application/json` → `Content-Type: application/json`
-- `Salt-X-Custom-Header: value` → `X-Custom-Header: value`
+When `--strip-prefixes` is configured, the proxy will remove matching prefixes from the request path:
+
+**Example with `--strip-prefixes "meta,poly"`:**
+- Request: `localhost:3000/meta/markets/123` → Forwarded: `/markets/123`
+- Request: `localhost:3000/poly/events` → Forwarded: `/events`
+- Request: `localhost:3000/other/path` → Forwarded: `/other/path` (no match, unchanged)
+
+**Note:** Only the first matching prefix is stripped.
+
+### Header Forwarding
+
+Only headers specified in the `--allow-headers` option are forwarded to the target server:
+
+- `Host: api.example.com` → Determines the target host for the request
+- `Authorization: Bearer token123` → Forwarded if `authorization` is in allow-headers
+- `Content-Type: application/json` → Forwarded if `content-type` is in allow-headers
+- `X-API-Key: secret` → Forwarded if `x-api-key` is in allow-headers
+
+**Note:** Header names in `--allow-headers` are case-insensitive.
 
 ### Example Request
 
+**Start server with allowed headers:**
 ```bash
-curl -X POST http://localhost:3000/api/users \
-  -H "Salt-Host: api.example.com" \
-  -H "Salt-Authorization: Bearer token123" \
-  -H "Salt-Content-Type: application/json" \
-  -d '{"name": "John Doe"}'
+cargo run -- --port 3000 --allow-headers "authorization,content-type,x-api-key"
 ```
 
-**With Bearer Token Authentication:**
-
+**Send request:**
 ```bash
 curl -X POST http://localhost:3000/api/users \
-  -H "Authorization: Bearer your-secret-token" \
-  -H "Salt-Host: api.example.com" \
-  -H "Salt-Authorization: Bearer token123" \
-  -H "Salt-Content-Type: application/json" \
+  -H "Host: api.example.com" \
+  -H "Authorization: Bearer token123" \
+  -H "Content-Type: application/json" \
   -d '{"name": "John Doe"}'
 ```
 
@@ -156,8 +197,7 @@ Content-Type: application/json
 | `--port` | Port to listen on | 3000 | `--port 8080` |
 | `--proxy` | Proxy configuration | None | `--proxy user:pass@proxy.com:8080` |
 | `--cors` | CORS allowed origins | * (all) | `--cors https://myapp.com` |
-| `--bearer-token` | Bearer token for auth | None | `--bearer-token secret123` |
-
+| `--bearer-token` | Bearer token for auth | None | `--bearer-token secret123` || `--allow-headers` | Headers to forward to target (comma-separated) | None | `--allow-headers "authorization,content-type"` |
 ## Development
 
 ### Run in development mode

@@ -21,6 +21,8 @@ PORT=3000
 PROXY=username:password@proxy.example.com:8080
 CORS=*
 BEARER_TOKEN=my-secret-token-123
+ALLOW_HEADERS=authorization,content-type,x-api-key
+STRIP_PREFIXES=kalshi,poly
 RUST_LOG=info
 ```
 
@@ -62,7 +64,9 @@ docker run -d \
   --port 3000 \
   --proxy user:pass@proxy.com:8080 \
   --cors "https://myapp.com" \
-  --bearer-token my-secret-token
+  --bearer-token my-secret-token \
+  --allow-headers "authorization,content-type,x-api-key" \
+  --strip-prefixes "kalshi,poly"
 ```
 
 ## Configuration Options
@@ -74,8 +78,7 @@ All options can be configured via environment variables in `.env` file:
 | `PORT` | Host port mapping | 3000 | `8080` |
 | `PROXY` | Proxy server config | None | `user:pass@proxy.com:8080` |
 | `CORS` | CORS allowed origins | * | `https://myapp.com` |
-| `BEARER_TOKEN` | Auth token | None | `secret-token-123` |
-| `RUST_LOG` | Log level | info | `debug` |
+| `BEARER_TOKEN` | Auth token | None | `secret-token-123` || `ALLOW_HEADERS` | Headers to forward to target | None | `authorization,content-type` || `RUST_LOG` | Log level | info | `debug` |
 
 ## Health Check
 
@@ -139,6 +142,8 @@ services:
       --proxy ${PROXY}
       --cors https://myapp.com
       --bearer-token ${BEARER_TOKEN}
+      --allow-headers "authorization,content-type"
+      --strip-prefixes "kalshi,poly"
 ```
 
 ## Troubleshooting
