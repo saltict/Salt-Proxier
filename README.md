@@ -30,11 +30,29 @@ The Linux binary will be available at `target/linux-release/salt-proxier`
 
 ```bash
 # Build Docker image
-docker build -t salt-proxier .
+docker build -f docker/Dockerfile -t salt-proxier .
 
 # Run with Docker
 docker run --rm -p 3000:3000 salt-proxier --port 3000
 ```
+
+### Using Docker Compose (Recommended)
+
+```bash
+# Quick start
+cd docker
+cp .env.example .env
+# Edit .env with your configuration
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop
+docker-compose down
+```
+
+See [docker/README.md](docker/README.md) for detailed Docker deployment guide.
 
 ## Usage
 
@@ -60,6 +78,28 @@ cargo run -- --port 8080 --proxy username:password@proxy.example.com:8080
 
 # Without authentication
 cargo run -- --port 8080 --proxy proxy.example.com:8080
+```
+
+### With Bearer Token Authentication
+
+```bash
+# Enable bearer token authentication
+cargo run -- --port 8080 --bearer-token your-secret-token
+
+# With proxy and bearer token
+cargo run -- --port 8080 \
+  --proxy user:pass@proxy.com:8080 \
+  --bearer-token your-secret-token
+```
+
+### With CORS Configuration
+
+```bash
+# Allow all origins (default)
+cargo run -- --port 8080 --cors "*"
+
+# Allow specific origin
+cargo run -- --port 8080 --cors "https://myapp.com"
 ```
 
 ## How It Works
@@ -89,6 +129,17 @@ curl -X POST http://localhost:3000/api/users \
   -d '{"name": "John Doe"}'
 ```
 
+**With Bearer Token Authentication:**
+
+```bash
+curl -X POST http://localhost:3000/api/users \
+  -H "Authorization: Bearer your-secret-token" \
+  -H "Salt-Host: api.example.com" \
+  -H "Salt-Authorization: Bearer token123" \
+  -H "Salt-Content-Type: application/json" \
+  -d '{"name": "John Doe"}'
+```
+
 This will proxy the request to:
 ```
 POST https://api.example.com/api/users
@@ -104,6 +155,8 @@ Content-Type: application/json
 |--------|-------------|---------|---------|
 | `--port` | Port to listen on | 3000 | `--port 8080` |
 | `--proxy` | Proxy configuration | None | `--proxy user:pass@proxy.com:8080` |
+| `--cors` | CORS allowed origins | * (all) | `--cors https://myapp.com` |
+| `--bearer-token` | Bearer token for auth | None | `--bearer-token secret123` |
 
 ## Development
 

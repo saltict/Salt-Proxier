@@ -3,6 +3,7 @@ use axum::{
     extract::State,
     http::{HeaderMap, HeaderName, Method, StatusCode, Uri},
     response::{IntoResponse, Response},
+    routing::get,
     Router,
 };
 use clap::Parser;
@@ -24,11 +25,16 @@ struct Args {
     /// CORS allowed origins (default: * for all origins)
     #[arg(long, default_value = "*")]
     cors: String,
+
+    /// Bearer token for authentication (optional)
+    #[arg(long)]
+    bearer_token: Option<String>,
 }
 
 #[derive(Clone)]
 struct AppState {
     client: Client,
+    bearer_token: Option<String>,
 }
 
 struct ProxyConfig {
@@ -148,7 +154,17 @@ async fn main() {
         }
     };
 
-    let state = AppState { client };
+    // Log bearer token status
+    if args.bearer_token.is_some() {
+        info!("Bearer token authentication enabled");
+    } else {
+        info!("No bearer token authentication (server is public)");
+    }
+
+    let state = AppState {
+        client,
+        bearer_token: args.bearer_token,
+    };
 
     // Configure CORS
     let cors = if args.cors == "*" {
@@ -167,6 +183,7 @@ async fn main() {
 
     // Build router
     let app = Router::new()
+        .route("/health", get(health_check))
         .fallback(handler)
         .layer(cors)
         .with_state(state);
@@ -180,6 +197,10 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
+async fn health_check() -> impl IntoResponse {
+    (StatusCode::OK, "OK")
+}
+
 async fn handler(
     State(state): State<AppState>,
     method: Method,
@@ -188,6 +209,27 @@ async fn handler(
     body: Body,
 ) -> Result<Response, AppError> {
     info!("Received {} request to {}", method, uri.path());
+    
+    // Validate bearer token if configured
+    if let Some(required_token) = &state.bearer_token {
+        let auth_header = headers
+            .get("Authorization")
+            .and_then(|v| v.to_str().ok());
+        
+        match auth_header {
+            Some(auth) if auth.starts_with("Bearer ") => {
+                let token = &auth[7..]; // Skip "Bearer "
+                if token != required_token {
+                    error!("Invalid bearer token");
+                    return Err(AppError::Unauthorized);
+                }
+            }
+            _ => {
+                error!("Missing or invalid Authorization header");
+                return Err(AppError::Unauthorized);
+            }
+        }
+    }
     
     // Extract Salt-Host header
     let target_host = headers
@@ -327,6 +369,7 @@ async fn handler(
 
 // Error handling
 enum AppError {
+    Unauthorized,
     MissingHeader(String),
     BodyReadError,
     RequestFailed(String),
@@ -337,6 +380,9 @@ enum AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
+            AppError::Unauthorized => {
+                (StatusCode::UNAUTHORIZED, "Unauthorized: Invalid or missing bearer token".to_string())
+            }
             AppError::MissingHeader(header) => {
                 (StatusCode::BAD_REQUEST, format!("Missing required header: {}", header))
             }

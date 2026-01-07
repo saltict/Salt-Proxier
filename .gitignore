@@ -4,3 +4,7 @@ Cargo.lock
 *.exe
 .DS_Store
 .vscode
+.idea
+
+# Docker environment
+docker/.env
